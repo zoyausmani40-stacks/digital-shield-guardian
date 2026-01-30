@@ -11,6 +11,17 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    watch: {
+      ignored: [
+        "**/backend/**",
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/__pycache__/**",
+        "**/*.pyc",
+        "**/.venv/**",
+        "**/venv/**",
+      ],
+    },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

@@ -2,10 +2,17 @@ import json
 from typing import Dict, Any
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    temperature=0
-)
+_llm = None
+
+def get_llm():
+    """Lazy initialization of LLM"""
+    global _llm
+    if _llm is None:
+        _llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=0
+        )
+    return _llm
 
 def evaluator_agent(
     evidence: Dict[str, Any],
@@ -59,6 +66,7 @@ Return JSON in EXACTLY this format:
 }}
 """
 
+    llm = get_llm()
     response = llm.invoke(prompt)
     raw = response.content.strip()
 

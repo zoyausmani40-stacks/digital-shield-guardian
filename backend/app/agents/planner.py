@@ -9,11 +9,17 @@ ALLOWED_TASKS = [
     "analyze_bio_exposure"
 ]
 
+_llm = None
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    temperature=0
-)
+def get_llm():
+    """Lazy initialization of LLM"""
+    global _llm
+    if _llm is None:
+        _llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=0
+        )
+    return _llm
 
 def planner_agent_llm(user_input: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -51,6 +57,7 @@ Return JSON in EXACTLY this format:
 }}
 """
 
+    llm = get_llm()
     response = llm.invoke(prompt)
 
     raw = response.content.strip()

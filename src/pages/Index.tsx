@@ -18,64 +18,6 @@ interface LogEntry {
   message: string;
 }
 
-const mockVulnerabilities = [
-  {
-    title: "Email Address Exposed in Public Repos",
-    description: "Your email address was found in 3 public GitHub repositories, making you vulnerable to targeted phishing attacks.",
-    severity: "high" as const,
-    category: "Data Exposure",
-    details: ["Found in commit history", "Visible in package.json", "README.md contact section"],
-  },
-  {
-    title: "Predictable Username Pattern",
-    description: "The same username is used across multiple platforms, allowing attackers to easily map your digital identity.",
-    severity: "medium" as const,
-    category: "Identity Risk",
-    details: ["GitHub: same handle", "Twitter: same handle", "LinkedIn: similar pattern"],
-  },
-  {
-    title: "Location Data in Bio",
-    description: "Your city and workplace are publicly visible, which could be used for social engineering attacks.",
-    severity: "medium" as const,
-    category: "Personal Info",
-    details: ["City mentioned in GitHub bio", "Company name visible"],
-  },
-  {
-    title: "2FA Status Unknown",
-    description: "Unable to verify two-factor authentication status on all accounts. Consider enabling 2FA everywhere.",
-    severity: "low" as const,
-    category: "Account Security",
-    details: ["Recommended for all accounts"],
-  },
-];
-
-const mockMitigationSteps = [
-  {
-    step: 1,
-    title: "Remove email from public commits",
-    description: "Use GitHub's noreply email address to hide your real email from commit history.",
-    priority: "critical" as const,
-  },
-  {
-    step: 2,
-    title: "Enable 2FA on all accounts",
-    description: "Add two-factor authentication to GitHub, email, and all social media accounts.",
-    priority: "critical" as const,
-  },
-  {
-    step: 3,
-    title: "Audit and update bios",
-    description: "Remove or generalize location and workplace information from public profiles.",
-    priority: "recommended" as const,
-  },
-  {
-    step: 4,
-    title: "Use unique usernames",
-    description: "Consider using different handles for professional and personal accounts.",
-    priority: "optional" as const,
-  },
-];
-
 const dataSources = [
   { name: "GitHub", icon: <Github className="w-5 h-5" /> },
   { name: "Email Services", icon: <Mail className="w-5 h-5" /> },
@@ -84,18 +26,30 @@ const dataSources = [
   { name: "Public Web", icon: <Globe className="w-5 h-5" /> },
 ];
 
+interface ScanResult {
+  riskScore: number;
+  riskLevel: string;
+  riskFactors: string[];
+  mitigations: string[];
+  evidence: Record<string, any>;
+  timestamp: string;
+}
+
 export default function Index() {
   const [view, setView] = useState<ViewState>("input");
   const [currentStage, setCurrentStage] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [sourceStatuses, setSourceStatuses] = useState<Record<string, "pending" | "scanning" | "complete" | "error">>({});
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [formData, setFormData] = useState<{githubUsername: string; email: string; socialHandles: string; fullName: string} | null>(null);
 
   const addLog = (type: LogEntry["type"], message: string) => {
     const timestamp = new Date().toLocaleTimeString("en-US", { hour12: false });
     setLogs((prev) => [...prev, { timestamp, type, message }]);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (data: {githubUsername: string; email: string; socialHandles: string; fullName: string}) => {
+    setFormData(data);
     setView("scanning");
     setLogs([]);
     setCurrentStage(0);
@@ -105,54 +59,87 @@ export default function Index() {
     dataSources.forEach((s) => (initialStatuses[s.name] = "pending"));
     setSourceStatuses(initialStatuses);
 
-    // Simulate the 4-stage scanning process
-    const stages = [
-      { name: "Planner", logs: ["Initializing autonomous agents...", "Parsing input parameters...", "Creating scan strategy..."] },
-      { name: "Gather", logs: ["Scanning GitHub repositories...", "Checking email breach databases...", "Analyzing social profiles..."] },
-      { name: "Generate", logs: ["Correlating data points...", "Identifying exposure patterns...", "Calculating risk vectors..."] },
-      { name: "Evaluate", logs: ["Scoring vulnerability severity...", "Generating mitigation steps...", "Compiling final report..."] },
-    ];
-
-    for (let i = 0; i < stages.length; i++) {
-      setCurrentStage(i);
-      addLog("info", `[STAGE ${i + 1}] ${stages[i].name.toUpperCase()} AGENT ACTIVATED`);
+    try {
+      // Show initial stage
+      setCurrentStage(0);
+      addLog("info", "[STAGE 1] PLANNER AGENT ACTIVATED");
+      addLog("info", "Initializing autonomous agents...");
+      addLog("info", "Parsing input parameters...");
       
-      for (const log of stages[i].logs) {
-        await new Promise((r) => setTimeout(r, 600));
-        addLog("info", log);
-        
-        // Simulate data source scanning during gather phase
-        if (i === 1) {
-          const sourceIndex = stages[1].logs.indexOf(log);
-          if (sourceIndex < dataSources.length) {
-            setSourceStatuses((prev) => ({
-              ...prev,
-              [dataSources[sourceIndex].name]: "scanning",
-            }));
-            await new Promise((r) => setTimeout(r, 800));
-            setSourceStatuses((prev) => ({
-              ...prev,
-              [dataSources[sourceIndex].name]: "complete",
-            }));
-          }
-        }
+      // Make API call to backend
+      addLog("info", "Sending request to backend API...");
+      const response = await fetch("http://localhost:8000/api/scan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          githubUsername: data.githubUsername || undefined,
+          email: data.email || undefined,
+          socialHandles: data.socialHandles || undefined,
+          fullName: data.fullName || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: "Unknown error" }));
+        throw new Error(errorData.detail || `API error: ${response.status}`);
       }
-      
-      addLog("success", `${stages[i].name} stage complete`);
+
+      const result: ScanResult = await response.json();
+      setScanResult(result);
+
+      // Update stages based on evidence collected
+      setCurrentStage(1);
+      addLog("info", "[STAGE 2] GATHER AGENT ACTIVATED");
+      if (result.evidence.github) {
+        addLog("info", "Scanning GitHub repositories...");
+        setSourceStatuses((prev) => ({ ...prev, GitHub: "complete" }));
+      }
+      if (result.evidence.email) {
+        addLog("info", "Checking email breach databases...");
+        setSourceStatuses((prev) => ({ ...prev, "Email Services": "complete" }));
+      }
+      if (result.evidence.username) {
+        addLog("info", "Analyzing social profiles...");
+        setSourceStatuses((prev) => ({ ...prev, "Twitter/X": "complete", LinkedIn: "complete" }));
+      }
+
+      setCurrentStage(2);
+      addLog("info", "[STAGE 3] GENERATE AGENT ACTIVATED");
+      addLog("info", "Correlating data points...");
+      addLog("info", "Identifying exposure patterns...");
+      addLog("info", "Calculating risk vectors...");
+
+      setCurrentStage(3);
+      addLog("info", "[STAGE 4] EVALUATE AGENT ACTIVATED");
+      addLog("info", "Scoring vulnerability severity...");
+      addLog("info", "Generating mitigation steps...");
+      addLog("info", "Compiling final report...");
+
+      // Complete remaining sources
+      dataSources.forEach((s) => {
+        if (!sourceStatuses[s.name] || sourceStatuses[s.name] === "pending") {
+          setSourceStatuses((prev) => ({
+            ...prev,
+            [s.name]: "complete",
+          }));
+        }
+      });
+
+      addLog("success", "SCAN COMPLETE - Report generated");
       await new Promise((r) => setTimeout(r, 500));
+      setView("results");
+    } catch (error) {
+      addLog("error", `Error: ${error instanceof Error ? error.message : "Unknown error occurred"}`);
+      // Mark sources as error
+      dataSources.forEach((s) => {
+        setSourceStatuses((prev) => ({
+          ...prev,
+          [s.name]: "error",
+        }));
+      });
     }
-
-    // Complete remaining sources
-    dataSources.forEach((s) => {
-      setSourceStatuses((prev) => ({
-        ...prev,
-        [s.name]: prev[s.name] === "pending" ? "complete" : prev[s.name],
-      }));
-    });
-
-    addLog("success", "SCAN COMPLETE - Report generated");
-    await new Promise((r) => setTimeout(r, 1000));
-    setView("results");
   };
 
   const resetScan = () => {
@@ -160,6 +147,8 @@ export default function Index() {
     setCurrentStage(0);
     setLogs([]);
     setSourceStatuses({});
+    setScanResult(null);
+    setFormData(null);
   };
 
   return (
@@ -205,7 +194,7 @@ export default function Index() {
             </div>
 
             <div className="card-cyber rounded-xl p-8">
-              <InputForm onSubmit={handleSubmit} />
+              <InputForm onSubmit={(data) => handleSubmit(data)} />
             </div>
 
             <div className="mt-12 grid grid-cols-3 gap-6 text-center">
@@ -258,7 +247,7 @@ export default function Index() {
         )}
 
         {/* Results View */}
-        {view === "results" && (
+        {view === "results" && scanResult && (
           <div className="max-w-6xl mx-auto animate-fade-in">
             <div className="grid lg:grid-cols-3 gap-8">
               {/* Left Column - Risk Score */}
@@ -267,20 +256,18 @@ export default function Index() {
                   <h3 className="text-sm font-mono text-muted-foreground uppercase tracking-wider mb-6 text-center">
                     Overall Risk Score
                   </h3>
-                  <RiskGauge score={67} />
+                  <RiskGauge score={scanResult.riskScore} />
                   
                   <div className="mt-8 space-y-3">
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-muted-foreground">Data Exposure</span>
-                      <span className="font-mono text-destructive">High</span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-muted-foreground">Identity Risk</span>
-                      <span className="font-mono text-warning">Medium</span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-muted-foreground">Account Security</span>
-                      <span className="font-mono text-success">Low</span>
+                      <span className="text-muted-foreground">Risk Level</span>
+                      <span className={`font-mono ${
+                        scanResult.riskLevel === "High" ? "text-destructive" :
+                        scanResult.riskLevel === "Medium" ? "text-warning" :
+                        "text-success"
+                      }`}>
+                        {scanResult.riskLevel}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -288,16 +275,24 @@ export default function Index() {
 
               {/* Right Column - Details */}
               <div className="lg:col-span-2 space-y-8">
-                {/* Vulnerabilities */}
+                {/* Risk Factors */}
                 <section>
                   <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
                     <Shield className="w-5 h-5 text-primary" />
-                    Identified Vulnerabilities
+                    Identified Risk Factors
                   </h3>
                   <div className="grid gap-4">
-                    {mockVulnerabilities.map((vuln, i) => (
-                      <VulnerabilityCard key={i} {...vuln} />
-                    ))}
+                    {scanResult.riskFactors.length > 0 ? (
+                      scanResult.riskFactors.map((factor, i) => (
+                        <div key={i} className="card-cyber rounded-lg p-4">
+                          <p className="text-foreground">{factor}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="card-cyber rounded-lg p-4">
+                        <p className="text-muted-foreground">No significant risks detected</p>
+                      </div>
+                    )}
                   </div>
                 </section>
 
@@ -308,9 +303,21 @@ export default function Index() {
                     Recommended Mitigation Steps
                   </h3>
                   <div className="space-y-3">
-                    {mockMitigationSteps.map((step) => (
-                      <MitigationStep key={step.step} {...step} />
-                    ))}
+                    {scanResult.mitigations.length > 0 ? (
+                      scanResult.mitigations.map((mitigation, i) => (
+                        <MitigationStep
+                          key={i}
+                          step={i + 1}
+                          title={mitigation}
+                          description={mitigation}
+                          priority={i < 2 ? "critical" as const : "recommended" as const}
+                        />
+                      ))
+                    ) : (
+                      <div className="card-cyber rounded-lg p-4">
+                        <p className="text-muted-foreground">No specific mitigations recommended</p>
+                      </div>
+                    )}
                   </div>
                 </section>
 
