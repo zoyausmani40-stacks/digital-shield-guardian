@@ -1,6 +1,5 @@
 """
-FootprintGuard API - Simplified Version
-Works without LangGraph - uses direct function calls
+FootprintGuard API - Uses LangGraph workflow
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +12,9 @@ from datetime import datetime
 # Add the backend directory to path so we can import from app
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Import the LangGraph workflow
+from app.graph import app as graph_app
+
 # Initialize FastAPI app
 app = FastAPI(
     title="FootprintGuard API",
@@ -23,7 +25,7 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:8080", "http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -245,7 +247,7 @@ async def health_check():
 @app.post("/api/scan", response_model=ScanResponse)
 async def initiate_scan(request: ScanRequest):
     """
-    Initiate a digital footprint risk analysis scan
+    Initiate a digital footprint risk analysis scan using LangGraph workflow
     """
     
     # Validate input
@@ -260,24 +262,35 @@ async def initiate_scan(request: ScanRequest):
         normalized_input = normalize_input(request)
         print(f"Normalized input: {normalized_input}")
         
-        # 2. Plan tasks
-        planner_output = run_planner(normalized_input)
-        print(f"Planned tasks: {planner_output['tasks']}")
+        # 2. Run LangGraph workflow
+        initial_state = {
+            "user_input": normalized_input,
+            "planner_output": {},
+            "evidence": {},
+            "draft_output": {},
+            "evaluation": None,
+            "revision_count": 0,
+            "final_report": {}
+        }
         
-        # 3. Gather evidence
-        evidence = run_gatherer(planner_output)
-        print(f"Gathered evidence: {list(evidence.keys())}")
+        # Execute the graph workflow
+        result = graph_app.invoke(initial_state)
+        print(f"Graph execution complete. Final report: {result.get('final_report', {})}")
         
-        # 4. Generate assessment
-        assessment = run_generator(evidence)
-        print(f"Risk score: {assessment['risk_score']}")
+        # 3. Extract results from final report
+        final_report = result.get("final_report", {})
+        evidence = result.get("evidence", {})
         
-        # 5. Format response
+        # If no final report or empty, fall back to draft output
+        if not final_report or not final_report.get("risk_score"):
+            final_report = result.get("draft_output", {})
+        
+        # 4. Format response
         response = ScanResponse(
-            riskScore=assessment["risk_score"],
-            riskLevel=assessment["risk_level"],
-            riskFactors=assessment["risk_factors"],
-            mitigations=assessment["mitigations"],
+            riskScore=final_report.get("risk_score", 0),
+            riskLevel=final_report.get("risk_level", "Low"),
+            riskFactors=final_report.get("risk_factors", []),
+            mitigations=final_report.get("mitigations", []),
             evidence=evidence,
             timestamp=datetime.utcnow().isoformat()
         )
@@ -322,7 +335,7 @@ async def get_tools_status():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "api_simple:app",
+        "api:app",
         host="0.0.0.0",
         port=8000,
         reload=True,
