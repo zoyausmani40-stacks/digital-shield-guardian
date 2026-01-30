@@ -59,86 +59,166 @@ export default function Index() {
     dataSources.forEach((s) => (initialStatuses[s.name] = "pending"));
     setSourceStatuses(initialStatuses);
 
-    try {
-      // Show initial stage
-      setCurrentStage(0);
-      addLog("info", "[STAGE 1] PLANNER AGENT ACTIVATED");
-      addLog("info", "Initializing autonomous agents...");
-      addLog("info", "Parsing input parameters...");
-      
-      // Make API call to backend
-      addLog("info", "Sending request to backend API...");
-      const response = await fetch("http://localhost:8000/api/scan", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          githubUsername: data.githubUsername || undefined,
-          email: data.email || undefined,
-          socialHandles: data.socialHandles || undefined,
-          fullName: data.fullName || undefined,
-        }),
-      });
+    // Stage timing configuration (in ms) - simulates expected agent durations
+    const stageDurations = {
+      planner: 2000,
+      gather: 4000,
+      generate: 3000,
+      evaluate: 2500,
+    };
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: "Unknown error" }));
-        throw new Error(errorData.detail || `API error: ${response.status}`);
-      }
+    // Logs for each stage
+    const stageLogs: Record<number, { type: LogEntry["type"]; message: string; delay: number }[]> = {
+      0: [
+        { type: "info", message: "[STAGE 1] PLANNER AGENT ACTIVATED", delay: 0 },
+        { type: "info", message: "Initializing autonomous agents...", delay: 400 },
+        { type: "info", message: "Parsing input parameters...", delay: 800 },
+        { type: "info", message: "Building execution strategy...", delay: 1200 },
+        { type: "success", message: "Execution plan ready", delay: 1800 },
+      ],
+      1: [
+        { type: "info", message: "[STAGE 2] GATHER AGENT ACTIVATED", delay: 0 },
+        { type: "info", message: "Querying GitHub API...", delay: 500 },
+        { type: "info", message: "Scanning email breach databases...", delay: 1500 },
+        { type: "info", message: "Checking username registrations...", delay: 2500 },
+        { type: "info", message: "Crawling public profiles...", delay: 3200 },
+        { type: "success", message: "Data collection complete", delay: 3800 },
+      ],
+      2: [
+        { type: "info", message: "[STAGE 3] GENERATE AGENT ACTIVATED", delay: 0 },
+        { type: "info", message: "Correlating data points...", delay: 600 },
+        { type: "info", message: "Identifying exposure patterns...", delay: 1400 },
+        { type: "info", message: "Calculating risk vectors...", delay: 2200 },
+        { type: "success", message: "Risk analysis generated", delay: 2800 },
+      ],
+      3: [
+        { type: "info", message: "[STAGE 4] EVALUATE AGENT ACTIVATED", delay: 0 },
+        { type: "info", message: "Scoring vulnerability severity...", delay: 500 },
+        { type: "info", message: "Prioritizing risk factors...", delay: 1200 },
+        { type: "info", message: "Generating mitigation steps...", delay: 1800 },
+        { type: "info", message: "Compiling final report...", delay: 2200 },
+      ],
+    };
 
-      const result: ScanResult = await response.json();
-      setScanResult(result);
+    // Data source animations per stage
+    const sourceAnimations: Record<number, { name: string; status: "scanning" | "complete"; delay: number }[]> = {
+      1: [
+        { name: "GitHub", status: "scanning", delay: 200 },
+        { name: "GitHub", status: "complete", delay: 1200 },
+        { name: "Email Services", status: "scanning", delay: 1000 },
+        { name: "Email Services", status: "complete", delay: 2200 },
+        { name: "Twitter/X", status: "scanning", delay: 2000 },
+        { name: "Twitter/X", status: "complete", delay: 3000 },
+        { name: "LinkedIn", status: "scanning", delay: 2500 },
+        { name: "LinkedIn", status: "complete", delay: 3400 },
+        { name: "Public Web", status: "scanning", delay: 3000 },
+        { name: "Public Web", status: "complete", delay: 3800 },
+      ],
+    };
 
-      // Update stages based on evidence collected
-      setCurrentStage(1);
-      addLog("info", "[STAGE 2] GATHER AGENT ACTIVATED");
-      if (result.evidence.github) {
-        addLog("info", "Scanning GitHub repositories...");
-        setSourceStatuses((prev) => ({ ...prev, GitHub: "complete" }));
-      }
-      if (result.evidence.email) {
-        addLog("info", "Checking email breach databases...");
-        setSourceStatuses((prev) => ({ ...prev, "Email Services": "complete" }));
-      }
-      if (result.evidence.username) {
-        addLog("info", "Analyzing social profiles...");
-        setSourceStatuses((prev) => ({ ...prev, "Twitter/X": "complete", LinkedIn: "complete" }));
-      }
+    // Track if API has completed
+    let apiCompleted = false;
+    let apiResult: ScanResult | null = null;
+    let apiError: Error | null = null;
 
-      setCurrentStage(2);
-      addLog("info", "[STAGE 3] GENERATE AGENT ACTIVATED");
-      addLog("info", "Correlating data points...");
-      addLog("info", "Identifying exposure patterns...");
-      addLog("info", "Calculating risk vectors...");
-
-      setCurrentStage(3);
-      addLog("info", "[STAGE 4] EVALUATE AGENT ACTIVATED");
-      addLog("info", "Scoring vulnerability severity...");
-      addLog("info", "Generating mitigation steps...");
-      addLog("info", "Compiling final report...");
-
-      // Complete remaining sources
-      dataSources.forEach((s) => {
-        if (!sourceStatuses[s.name] || sourceStatuses[s.name] === "pending") {
-          setSourceStatuses((prev) => ({
-            ...prev,
-            [s.name]: "complete",
-          }));
+    // Start the API call (runs in parallel with animations)
+    const apiPromise = fetch("http://localhost:8000/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        githubUsername: data.githubUsername || undefined,
+        email: data.email || undefined,
+        socialHandles: data.socialHandles || undefined,
+        fullName: data.fullName || undefined,
+      }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: "Unknown error" }));
+          throw new Error(errorData.detail || `API error: ${response.status}`);
         }
+        return response.json();
+      })
+      .then((result: ScanResult) => {
+        apiResult = result;
+        apiCompleted = true;
+      })
+      .catch((error) => {
+        apiError = error;
+        apiCompleted = true;
       });
 
+    // Function to run logs for a stage
+    const runStageLogs = (stage: number) => {
+      const logs = stageLogs[stage] || [];
+      logs.forEach(({ type, message, delay }) => {
+        setTimeout(() => addLog(type, message), delay);
+      });
+    };
+
+    // Function to run source animations for a stage
+    const runSourceAnimations = (stage: number) => {
+      const animations = sourceAnimations[stage] || [];
+      animations.forEach(({ name, status, delay }) => {
+        setTimeout(() => {
+          setSourceStatuses((prev) => ({ ...prev, [name]: status }));
+        }, delay);
+      });
+    };
+
+    // Run the staged animation sequence
+    const runStageSequence = async () => {
+      const totalDuration = Object.values(stageDurations).reduce((a, b) => a + b, 0);
+      let elapsedTime = 0;
+
+      // Stage 0: Planner
+      setCurrentStage(0);
+      runStageLogs(0);
+      await new Promise((r) => setTimeout(r, stageDurations.planner));
+      elapsedTime += stageDurations.planner;
+
+      // Stage 1: Gather
+      setCurrentStage(1);
+      runStageLogs(1);
+      runSourceAnimations(1);
+      await new Promise((r) => setTimeout(r, stageDurations.gather));
+      elapsedTime += stageDurations.gather;
+
+      // Stage 2: Generate
+      setCurrentStage(2);
+      runStageLogs(2);
+      await new Promise((r) => setTimeout(r, stageDurations.generate));
+      elapsedTime += stageDurations.generate;
+
+      // Stage 3: Evaluate
+      setCurrentStage(3);
+      runStageLogs(3);
+      await new Promise((r) => setTimeout(r, stageDurations.evaluate));
+    };
+
+    // Run animation sequence
+    const animationPromise = runStageSequence();
+
+    // Wait for both animation and API to complete
+    await Promise.all([animationPromise, apiPromise]);
+
+    // Handle result
+    if (apiError) {
+      addLog("error", `Error: ${apiError.message}`);
+      dataSources.forEach((s) => {
+        setSourceStatuses((prev) => ({ ...prev, [s.name]: "error" }));
+      });
+    } else if (apiResult) {
+      setScanResult(apiResult);
       addLog("success", "SCAN COMPLETE - Report generated");
+      
+      // Ensure all sources show complete
+      dataSources.forEach((s) => {
+        setSourceStatuses((prev) => ({ ...prev, [s.name]: "complete" }));
+      });
+      
       await new Promise((r) => setTimeout(r, 500));
       setView("results");
-    } catch (error) {
-      addLog("error", `Error: ${error instanceof Error ? error.message : "Unknown error occurred"}`);
-      // Mark sources as error
-      dataSources.forEach((s) => {
-        setSourceStatuses((prev) => ({
-          ...prev,
-          [s.name]: "error",
-        }));
-      });
     }
   };
 
